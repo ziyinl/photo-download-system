@@ -5,7 +5,11 @@ const fs = require("fs");
 const XLSX = require("xlsx");
 
 const router = express.Router();
+const excelUploadDir = path.join(__dirname, "../uploads/excel");
 
+if (!fs.existsSync(excelUploadDir)) {
+  fs.mkdirSync(excelUploadDir, { recursive: true });
+}
 const excelUploadFolder = path.join(
   __dirname,
   "../uploads/excel"

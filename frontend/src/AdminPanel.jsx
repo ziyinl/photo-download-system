@@ -1,4 +1,7 @@
 import { useState } from "react";
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  "https://photo-download-system.onrender.com";
 
 function AdminPanel({ onBack }) {
   const [excelFile, setExcelFile] = useState(null);
@@ -38,7 +41,7 @@ function AdminPanel({ onBack }) {
       setExcelMessage("正在上傳 Excel...");
 
       const response = await fetch(
-        "http://localhost:3001/api/upload/excel",
+        `${API_URL}/api/upload/excel`,
         {
           method: "POST",
           body: formData,
@@ -92,7 +95,7 @@ function AdminPanel({ onBack }) {
       );
 
       const response = await fetch(
-        "http://localhost:3001/api/upload/certificates",
+        `${API_URL}/api/upload/certificates`,
         {
           method: "POST",
           body: formData,
@@ -132,7 +135,7 @@ function AdminPanel({ onBack }) {
       setCheckResult(null);
 
       const response = await fetch(
-        "http://localhost:3001/api/check"
+        `${API_URL}/api/check`
       );
 
       const data = await response.json();
