@@ -1,122 +1,337 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState } from "react";
+import "./App.css";
+import AdminPanel from "./AdminPanel";
+import Login from "./Login";
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  "http://localhost:3001";
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [name, setName] = useState("");
+  const [id, setId] = useState("");
+  const [message, setMessage] = useState("");
+  const [canDownload, setCanDownload] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [captchaAnswer, setCaptchaAnswer] = useState("");
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+
+  const [captchaA] = useState(
+    () => Math.floor(Math.random() * 9) + 1
+  );
+
+  const [captchaB] = useState(
+    () => Math.floor(Math.random() * 9) + 1
+  );
+
+  async function handleSearch() {
+    const trimmedName = name.trim();
+    const trimmedId = id.trim();
+
+    setMessage("");
+    setCanDownload(false);
+
+    if (!trimmedName || !trimmedId) {
+      setMessage("請完整輸入姓名與 ID");
+      return;
+    }
+
+    if (Number(captchaAnswer) !== captchaA + captchaB) {
+      setMessage("驗證碼錯誤");
+      return;
+    }
+
+    try {
+      setIsSearching(true);
+
+      const response = await fetch(
+        `${API_URL}/api/search?name=${encodeURIComponent(
+  trimmedName
+)}&id=${encodeURIComponent(trimmedId)}`
+      );
+
+      const data = await response.json();
+
+      setMessage(data.message || "查詢完成");
+
+      if (data.success) {
+        setCanDownload(true);
+      }
+    } catch (error) {
+      console.error("查詢失敗：", error);
+      setMessage("無法連線到 Backend");
+    } finally {
+      setIsSearching(false);
+    }
+  }
+
+  async function handleDownload() {
+    const trimmedName = name.trim();
+    const trimmedId = id.trim();
+
+    try {
+      setIsDownloading(true);
+      setMessage("正在準備下載...");
+
+      const response = await fetch(
+        `${API_URL}/api/download`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: trimmedName,
+            id: trimmedId,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+
+        setMessage(
+          data.message || "下載失敗，請稍後再試。"
+        );
+
+        setCanDownload(false);
+        return;
+      }
+
+      const certificateBlob = await response.blob();
+      const temporaryUrl =
+        URL.createObjectURL(certificateBlob);
+
+      const contentDisposition = response.headers.get(
+        "Content-Disposition"
+      );
+
+      let fileName = `${trimmedName}-證書`;
+
+      if (contentDisposition) {
+        const utf8Match = contentDisposition.match(
+          /filename\*=UTF-8''([^;]+)/
+        );
+
+        const normalMatch = contentDisposition.match(
+          /filename="?([^"]+)"?/
+        );
+
+        if (utf8Match) {
+          fileName = decodeURIComponent(utf8Match[1]);
+        } else if (normalMatch) {
+          fileName = normalMatch[1];
+        }
+      }
+
+      const link = document.createElement("a");
+
+      link.href = temporaryUrl;
+      link.download = fileName;
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      URL.revokeObjectURL(temporaryUrl);
+
+      setMessage("證書下載成功！");
+    } catch (error) {
+      console.error("下載失敗：", error);
+
+      setMessage(
+        "下載失敗，請確認 Backend 是否正常啟動。"
+      );
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+if (showLogin) {
+  return (
+    <Login
+      onBack={() => setShowLogin(false)}
+      onLoginSuccess={() => {
+        setIsAdminLoggedIn(true);
+        setShowLogin(false);
+        setShowAdmin(true);
+      }}
+    />
+  );
+}
+  if (showAdmin) {
+    return (
+      <AdminPanel
+        onBack={() => setShowAdmin(false)}
+      />
+    );
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
+    <main
+       style={{
+      textAlign: "center",
+      marginTop: "70px",
+      padding: "0 20px 50px",
+      position: "relative",
+    }}
+  >
+    <div
+  style={{
+    position: "absolute",
+    top: "-45px",
+    right: "0",
+  }}
+>
+  <button
+    type="button"
+    onClick={() => {
+      if (isAdminLoggedIn) {
+        setShowAdmin(true);
+      } else {
+        setShowLogin(true);
+      }
+    }}
+    style={{
+      background: "transparent",
+      border: "none",
+      color: "#777",
+      cursor: "pointer",
+      fontSize: "13px",
+    }}
+  >
+    管理員登入
+  </button>
+</div>
+      <h1>
+        iPAS 初級AI應用規劃師
+        重點培訓班證書下載
+      </h1>
+
+      <p>請輸入姓名</p>
+
+      <input
+        type="text"
+        value={name}
+        placeholder="例如：王小明"
+        onChange={(event) => {
+          setName(event.target.value);
+          setCanDownload(false);
+          setMessage("");
+        }}
+        style={{
+          width: "280px",
+          padding: "12px",
+          fontSize: "16px",
+          boxSizing: "border-box",
+        }}
+      />
+
+      <p style={{ marginTop: "20px" }}>
+        請輸入 ID
+      </p>
+
+      <input
+        type="text"
+        value={id}
+        placeholder="員工編號、學號或 Email"
+        onChange={(event) => {
+          setId(event.target.value);
+          setCanDownload(false);
+          setMessage("");
+        }}
+        style={{
+          width: "280px",
+          padding: "12px",
+          fontSize: "16px",
+          boxSizing: "border-box",
+        }}
+      />
+
+      <div
+        style={{
+          marginTop: "12px",
+          fontSize: "14px",
+          lineHeight: "1.8",
+          color: "#666",
+        }}
+      >
         <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
+          校內教職員：請輸入員工編號
         </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+        <div>
+          學生：請輸入學號
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+        <div>
+          校外人士：請輸入報名時填寫的電子郵件（Email）
+        </div>
+      </div>
+
+      <p style={{ marginTop: "20px" }}>
+        請回答驗證碼
+      </p>
+
+      <div
+        style={{
+          fontSize: "22px",
+          fontWeight: "bold",
+          marginBottom: "10px",
+        }}
+      >
+        {captchaA} + {captchaB} =
+      </div>
+
+      <input
+        type="text"
+        inputMode="numeric"
+        value={captchaAnswer}
+        placeholder="請輸入答案"
+        onChange={(event) => {
+          setCaptchaAnswer(event.target.value);
+          setCanDownload(false);
+          setMessage("");
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            handleSearch();
+          }
+        }}
+        style={{
+          width: "160px",
+          padding: "12px",
+          fontSize: "18px",
+          textAlign: "center",
+          boxSizing: "border-box",
+        }}
+      />
+
+  
+
+      {message && (
+        <p style={{ marginTop: "24px" }}>
+          {message}
+        </p>
+      )}
+
+      {canDownload && (
+        <div style={{ marginTop: "16px" }}>
+          <button
+            type="button"
+            onClick={handleDownload}
+            disabled={isDownloading}
+          >
+            {isDownloading
+              ? "下載中..."
+              : "下載證書"}
+          </button>
+        </div>
+      )}
+
+    </main>
+  );
 }
 
-export default App
+export default App;
