@@ -157,7 +157,7 @@ const [isUploadingCertificates, setIsUploadingCertificates] =
 
       if (!response.ok || !data.success) {
         throw new Error(
-          data.message || "活動建立失敗"
+          data.error || "活動建立失敗"
         );
       }
 
