@@ -84,7 +84,7 @@ const [isUploadingCertificates, setIsUploadingCertificates] =
 
       if (!response.ok || !data.success) {
         throw new Error(
-          data.message || "取得活動列表失敗"
+          data.error || "取得活動列表失敗"
         );
       }
 
