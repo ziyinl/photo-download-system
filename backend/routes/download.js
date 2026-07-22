@@ -1,16 +1,44 @@
-// 從 Supabase 查詢活動參與者
-app.get("/api/search", async (req, res) => {
+const express = require("express");
+const path = require("path");
+
+const supabase = require("../supabase");
+
+const router = express.Router();
+
+// 必須和 upload.js 使用的 Supabase Storage bucket 名稱相同
+const CERTIFICATE_BUCKET = "CERTIFICATE_BUCKET";
+
+function getContentType(filename) {
+  const extension = path
+    .extname(filename || "")
+    .toLowerCase();
+
+  const contentTypes = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".pdf": "application/pdf",
+  };
+
+  return (
+    contentTypes[extension] ||
+    "application/octet-stream"
+  );
+}
+
+// 驗證活動、姓名與 ID 後，從 Supabase Storage 下載證書
+router.post("/", async (req, res) => {
   try {
     const activityId = String(
-      req.query.activityId || ""
+      req.body.activityId || ""
     ).trim();
 
     const name = String(
-      req.query.name || ""
+      req.body.name || ""
     ).trim();
 
     const id = String(
-      req.query.id || ""
+      req.body.id || ""
     ).trim();
 
     if (!activityId) {
@@ -27,7 +55,7 @@ app.get("/api/search", async (req, res) => {
       });
     }
 
-    // 確認活動存在並且已開放下載
+    // 確認活動存在及是否開放
     const {
       data: activity,
       error: activityError,
@@ -73,7 +101,7 @@ app.get("/api/search", async (req, res) => {
       }
     }
 
-    // 使用活動、姓名及 ID 查詢參與者
+    // 查詢正確活動中的參與者
     const {
       data: participant,
       error: participantError,
@@ -92,36 +120,83 @@ app.get("/api/search", async (req, res) => {
     }
 
     if (!participant) {
-      return res.status(404).json({
+      return res.status(401).json({
         success: false,
         message:
-          "姓名或 ID 不正確，請確認後再試。",
+          "姓名或 ID 不正確，無法下載證書。",
       });
     }
 
     if (!participant.photo_key) {
       return res.status(404).json({
         success: false,
-        message:
-          "身分驗證成功，但此證書尚未上傳。",
+        message: "此證書尚未上傳。",
       });
     }
 
-    return res.json({
-      success: true,
-      message: `您好，${participant.name}！身分驗證成功，可以下載證書。`,
-      activity: {
-        id: activity.id,
-        name: activity.name,
-      },
-    });
+    // 從 Supabase Storage 下載檔案
+    const {
+      data: certificateBlob,
+      error: downloadError,
+    } = await supabase.storage
+      .from(CERTIFICATE_BUCKET)
+      .download(participant.photo_key);
+
+    if (downloadError) {
+      throw downloadError;
+    }
+
+    if (!certificateBlob) {
+      return res.status(404).json({
+        success: false,
+        message: "找不到證書檔案。",
+      });
+    }
+
+    const arrayBuffer =
+      await certificateBlob.arrayBuffer();
+
+    const fileBuffer =
+      Buffer.from(arrayBuffer);
+
+    const extension =
+      path.extname(participant.photo_key) ||
+      ".png";
+
+    const filename =
+      participant.original_filename ||
+      `${participant.name}_證書${extension}`;
+
+    res.setHeader(
+      "Content-Type",
+      getContentType(filename)
+    );
+
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename*=UTF-8''${encodeURIComponent(
+        filename
+      )}`
+    );
+
+    res.setHeader(
+      "Content-Length",
+      fileBuffer.length
+    );
+
+    return res.send(fileBuffer);
   } catch (error) {
-    console.error("查詢失敗：", error);
+    console.error(
+      "下載證書發生錯誤：",
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      message: "查詢失敗，請稍後再試。",
+      message: "下載失敗，請稍後再試。",
       error: error.message,
     });
   }
 });
+
+module.exports = router;
