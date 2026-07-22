@@ -4,7 +4,7 @@ import AdminPanel from "./AdminPanel";
 import Login from "./Login";
 const API_URL =
   import.meta.env.VITE_API_URL ||
-  "http://localhost:3001";
+  "https://photo-download-system.onrender.com";
 
 function App() {
   const [name, setName] = useState("");
