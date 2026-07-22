@@ -1,9 +1,5 @@
 const express = require("express");
 const cors = require("cors");
-const fs = require("fs");
-const path = require("path");
-const xlsx = require("xlsx");
-
 const supabase = require("./supabase");
 
 const uploadRoutes = require("./routes/upload");
@@ -89,9 +85,13 @@ app.get("/api/test-supabase", async (req, res) => {
   }
 });
 
-// 舊版查詢功能，目前仍讀取本機 Excel 與照片資料夾
-app.get("/api/search", (req, res) => {
+// 從 Supabase 查詢活動參與者
+app.get("/api/search", async (req, res) => {
   try {
+    const activityId = String(
+      req.query.activityId || ""
+    ).trim();
+
     const name = String(
       req.query.name || ""
     ).trim();
@@ -100,6 +100,13 @@ app.get("/api/search", (req, res) => {
       req.query.id || ""
     ).trim();
 
+    if (!activityId) {
+      return res.status(400).json({
+        success: false,
+        message: "請先選擇活動",
+      });
+    }
+
     if (!name || !id) {
       return res.status(400).json({
         success: false,
@@ -107,57 +114,71 @@ app.get("/api/search", (req, res) => {
       });
     }
 
-    const excelPath = path.join(
-      __dirname,
-      "uploads",
-      "excel",
-      "名單.xlsx"
-    );
+    // 確認活動存在並且已開放下載
+    const {
+      data: activity,
+      error: activityError,
+    } = await supabase
+      .from("activities")
+      .select(
+        "id, name, status, download_deadline"
+      )
+      .eq("id", activityId)
+      .maybeSingle();
 
-    const photoFolder = path.join(
-      __dirname,
-      "uploads",
-      "photos"
-    );
+    if (activityError) {
+      throw activityError;
+    }
 
-    if (!fs.existsSync(excelPath)) {
-      return res.status(400).json({
+    if (!activity) {
+      return res.status(404).json({
         success: false,
-        message: "找不到 Excel 名單",
+        message: "找不到指定的活動",
       });
     }
 
-    if (!fs.existsSync(photoFolder)) {
-      return res.status(400).json({
+    if (activity.status !== "open") {
+      return res.status(403).json({
         success: false,
-        message: "找不到照片資料夾",
+        message: "此活動目前尚未開放下載",
       });
     }
 
-    const workbook = xlsx.readFile(excelPath);
-
-    const sheet =
-      workbook.Sheets[workbook.SheetNames[0]];
-
-    const data =
-      xlsx.utils.sheet_to_json(sheet);
-
-    const person = data.find((row) => {
-      const excelName = String(
-        row["姓名"] || ""
-      ).trim();
-
-      const excelId = String(
-        row["ID"] || ""
-      ).trim();
-
-      return (
-        excelName === name &&
-        excelId === id
+    if (activity.download_deadline) {
+      const deadline = new Date(
+        activity.download_deadline
       );
-    });
 
-    if (!person) {
+      if (
+        !Number.isNaN(deadline.getTime()) &&
+        deadline.getTime() < Date.now()
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "此活動的下載期限已截止",
+        });
+      }
+    }
+
+    // 使用活動、姓名及 ID 查詢參與者
+    const {
+      data: participant,
+      error: participantError,
+    } = await supabase
+      .from("participants")
+      .select(
+        "id, name, verification_code, photo_key, original_filename"
+      )
+      .eq("activity_id", activityId)
+      .eq("name", name)
+      .eq("verification_code", id)
+      .maybeSingle();
+
+    if (participantError) {
+      throw participantError;
+    }
+
+    if (!participant) {
       return res.status(404).json({
         success: false,
         message:
@@ -165,24 +186,21 @@ app.get("/api/search", (req, res) => {
       });
     }
 
-    const photos = fs.readdirSync(photoFolder);
-
-    const photo = photos.find((file) =>
-      file.startsWith(name)
-    );
-
-    if (!photo) {
+    if (!participant.photo_key) {
       return res.status(404).json({
         success: false,
         message:
-          "身分驗證成功，但找不到對應照片。",
+          "身分驗證成功，但此證書尚未上傳。",
       });
     }
 
     return res.json({
       success: true,
-      message: `您好，${name}！身分驗證成功。`,
-      photo,
+      message: `您好，${participant.name}！身分驗證成功，可以下載證書。`,
+      activity: {
+        id: activity.id,
+        name: activity.name,
+      },
     });
   } catch (error) {
     console.error("查詢失敗：", error);
@@ -193,38 +211,4 @@ app.get("/api/search", (req, res) => {
       error: error.message,
     });
   }
-});
-
-// 路由
-app.use("/api/upload", uploadRoutes);
-app.use("/api/check", checkRoutes);
-app.use("/api/download", downloadRoutes);
-app.use("/api/login", loginRoutes);
-app.use("/api/activities", activitiesRoutes);
-
-// 找不到路由
-app.use((req, res) => {
-  return res.status(404).json({
-    success: false,
-    message: "找不到此 API 路徑",
-  });
-});
-
-// 錯誤處理
-app.use((error, req, res, next) => {
-  console.error("伺服器錯誤：", error);
-
-  return res.status(500).json({
-    success: false,
-    message:
-      error.message || "伺服器發生錯誤",
-  });
-});
-
-const PORT = process.env.PORT || 3001;
-
-app.listen(PORT, () => {
-  console.log(
-    `Server is running on port ${PORT}`
-  );
 });
