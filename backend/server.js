@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+
 const supabase = require("./supabase");
 
 const uploadRoutes = require("./routes/upload");
@@ -8,23 +9,25 @@ const downloadRoutes = require("./routes/download");
 const loginRoutes = require("./routes/login");
 const activitiesRoutes = require("./routes/activities");
 
-
 const app = express();
 
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  "https://photo-download-system.vercel.app",
   "http://localhost:5173",
 ].filter(Boolean);
 
 app.use(
   cors({
     origin(origin, callback) {
+      // 允許瀏覽器以外的請求，例如 Render 健康檢查
       if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
+        return callback(null, true);
       }
 
-      callback(
+      console.error("CORS 阻擋來源：", origin);
+
+      return callback(
         new Error(`CORS 不允許此來源：${origin}`)
       );
     },
@@ -35,7 +38,10 @@ app.use(
       "DELETE",
       "OPTIONS",
     ],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
   })
 );
 
@@ -43,27 +49,27 @@ app.use(express.json());
 
 // 首頁測試
 app.get("/", (req, res) => {
-  res.json({
+  return res.json({
     success: true,
     message: "Backend 啟動成功！",
   });
 });
 
-// 測試 API
+// API 測試
 app.get("/api/hello", (req, res) => {
-  res.json({
+  return res.json({
     success: true,
     message: "Hello React！",
   });
 });
 
-// 測試 Supabase 連線
+// Supabase 連線測試
 app.get("/api/test-supabase", async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("activities")
       .select("id, name, status")
-      .limit(1);
+      .limit(5);
 
     if (error) {
       throw error;
@@ -81,11 +87,13 @@ app.get("/api/test-supabase", async (req, res) => {
       success: false,
       message: "Supabase 連線失敗",
       error: error.message,
+      code: error.code || null,
     });
   }
 });
 
-// 從 Supabase 查詢活動參與者
+// 查詢參與者
+// 不再讀取 Render 本機 Excel
 app.get("/api/search", async (req, res) => {
   try {
     const activityId = String(
@@ -114,15 +122,13 @@ app.get("/api/search", async (req, res) => {
       });
     }
 
-    // 確認活動存在並且已開放下載
+    // 確認活動存在
     const {
       data: activity,
       error: activityError,
     } = await supabase
       .from("activities")
-      .select(
-        "id, name, status, download_deadline"
-      )
+      .select("id, name, status")
       .eq("id", activityId)
       .maybeSingle();
 
@@ -144,30 +150,14 @@ app.get("/api/search", async (req, res) => {
       });
     }
 
-    if (activity.download_deadline) {
-      const deadline = new Date(
-        activity.download_deadline
-      );
-
-      if (
-        !Number.isNaN(deadline.getTime()) &&
-        deadline.getTime() < Date.now()
-      ) {
-        return res.status(403).json({
-          success: false,
-          message: "此活動的下載期限已截止",
-        });
-      }
-    }
-
-    // 使用活動、姓名及 ID 查詢參與者
+    // 查詢活動名單
     const {
       data: participant,
       error: participantError,
     } = await supabase
       .from("participants")
       .select(
-        "id, name, verification_code, photo_key, original_filename"
+        "id, activity_id, name, verification_code, photo_key"
       )
       .eq("activity_id", activityId)
       .eq("name", name)
@@ -190,13 +180,13 @@ app.get("/api/search", async (req, res) => {
       return res.status(404).json({
         success: false,
         message:
-          "身分驗證成功，但此證書尚未上傳。",
+          "身分驗證成功，但目前找不到對應證書。",
       });
     }
 
     return res.json({
       success: true,
-      message: `您好，${participant.name}！身分驗證成功，可以下載證書。`,
+      message: `您好，${participant.name}！身分驗證成功。`,
       activity: {
         id: activity.id,
         name: activity.name,
@@ -209,6 +199,41 @@ app.get("/api/search", async (req, res) => {
       success: false,
       message: "查詢失敗，請稍後再試。",
       error: error.message,
+      code: error.code || null,
     });
   }
+});
+
+// 路由
+app.use("/api/upload", uploadRoutes);
+app.use("/api/check", checkRoutes);
+app.use("/api/download", downloadRoutes);
+app.use("/api/login", loginRoutes);
+app.use("/api/activities", activitiesRoutes);
+
+// 找不到路由
+app.use((req, res) => {
+  return res.status(404).json({
+    success: false,
+    message: "找不到此 API 路徑",
+  });
+});
+
+// 錯誤處理
+app.use((error, req, res, next) => {
+  console.error("伺服器錯誤：", error);
+
+  return res.status(500).json({
+    success: false,
+    message:
+      error.message || "伺服器發生錯誤",
+  });
+});
+
+const PORT = process.env.PORT || 3001;
+
+app.listen(PORT, () => {
+  console.log(
+    `Server is running on port ${PORT}`
+  );
 });

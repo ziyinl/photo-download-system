@@ -5,8 +5,8 @@ const supabase = require("../supabase");
 
 const router = express.Router();
 
-// 必須和 upload.js 使用的 Supabase Storage bucket 名稱相同
-const CERTIFICATE_BUCKET = "CERTIFICATE_BUCKET";
+// 必須和 upload.js 使用相同的 Storage bucket 名稱
+const CERTIFICATE_BUCKET = "certificates";
 
 function getContentType(filename) {
   const extension = path
@@ -26,7 +26,7 @@ function getContentType(filename) {
   );
 }
 
-// 驗證活動、姓名與 ID 後，從 Supabase Storage 下載證書
+// 驗證姓名與 ID，從 Supabase Storage 下載證書
 router.post("/", async (req, res) => {
   try {
     const activityId = String(
@@ -55,15 +55,13 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // 確認活動存在及是否開放
+    // 確認活動存在
     const {
       data: activity,
       error: activityError,
     } = await supabase
       .from("activities")
-      .select(
-        "id, name, status, download_deadline"
-      )
+      .select("id, name, status")
       .eq("id", activityId)
       .maybeSingle();
 
@@ -85,30 +83,14 @@ router.post("/", async (req, res) => {
       });
     }
 
-    if (activity.download_deadline) {
-      const deadline = new Date(
-        activity.download_deadline
-      );
-
-      if (
-        !Number.isNaN(deadline.getTime()) &&
-        deadline.getTime() < Date.now()
-      ) {
-        return res.status(403).json({
-          success: false,
-          message: "此活動的下載期限已截止",
-        });
-      }
-    }
-
-    // 查詢正確活動中的參與者
+    // 驗證參與者
     const {
       data: participant,
       error: participantError,
     } = await supabase
       .from("participants")
       .select(
-        "id, name, verification_code, photo_key, original_filename"
+        "id, activity_id, name, verification_code, photo_key"
       )
       .eq("activity_id", activityId)
       .eq("name", name)
@@ -130,13 +112,13 @@ router.post("/", async (req, res) => {
     if (!participant.photo_key) {
       return res.status(404).json({
         success: false,
-        message: "此證書尚未上傳。",
+        message: "找不到對應證書。",
       });
     }
 
-    // 從 Supabase Storage 下載檔案
+    // 從 Supabase Storage 取得檔案
     const {
-      data: certificateBlob,
+      data: certificateFile,
       error: downloadError,
     } = await supabase.storage
       .from(CERTIFICATE_BUCKET)
@@ -146,7 +128,7 @@ router.post("/", async (req, res) => {
       throw downloadError;
     }
 
-    if (!certificateBlob) {
+    if (!certificateFile) {
       return res.status(404).json({
         success: false,
         message: "找不到證書檔案。",
@@ -154,7 +136,7 @@ router.post("/", async (req, res) => {
     }
 
     const arrayBuffer =
-      await certificateBlob.arrayBuffer();
+      await certificateFile.arrayBuffer();
 
     const fileBuffer =
       Buffer.from(arrayBuffer);
@@ -164,7 +146,6 @@ router.post("/", async (req, res) => {
       ".png";
 
     const filename =
-      participant.original_filename ||
       `${participant.name}_證書${extension}`;
 
     res.setHeader(
@@ -195,6 +176,7 @@ router.post("/", async (req, res) => {
       success: false,
       message: "下載失敗，請稍後再試。",
       error: error.message,
+      code: error.code || null,
     });
   }
 });
